@@ -23,43 +23,73 @@ st.title("🚀 Smart People Tracking and Violation Detection")
 uploaded_file = st.file_uploader("Upload a video", type=["mp4", "avi"])
 
 if uploaded_file:
+    # Generate unique filename and save video
     filename = f"{uuid.uuid4()}.mp4"
     video_path = os.path.join(UPLOAD_DIR, filename)
     with open(video_path, "wb") as f:
         f.write(uploaded_file.read())
     st.success(f"Video saved to {video_path}")
 
-    frames = get_video_frames(video_path)
+    # Initialize video writer
+    writer, cap, output_path = tracker.init_video_writer(video_path)
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    
+    # Create placeholders for display
     frame_display = st.empty()
+    status_text = st.empty()
 
-    fps = 30
+    # Initialize tracking variables
     id_times = {}
+    frame_count = 0
+    
+    try:
+        for frame in get_video_frames(video_path):
+            frame_count += 1
+            timestamp = frame_count / fps
+            
+            # Process frame and get detections
+            detections = tracker.track(frame)
+            ids_in_scene = []
 
-    for idx, frame in enumerate(frames):
-        timestamp = idx / fps
+            # Update tracking information
+            for det in detections:
+                pid = det["id"]
+                ids_in_scene.append(pid)
 
-        detections = tracker.track(frame)
-        ids_in_scene = []
+                if pid not in id_times:
+                    id_times[pid] = {"enter": timestamp, "last_seen": timestamp}
+                else:
+                    id_times[pid]["last_seen"] = timestamp
 
-        for det in detections:
-            pid = det["id"]
-            ids_in_scene.append(pid)
+            # Check for violations (2 minutes threshold)
+            for pid, times in id_times.items():
+                duration = times["last_seen"] - times["enter"]
+                if duration > tracker.threshold:  # 120 seconds
+                    image_path = tracker.save_violation_image(filename, frame, pid)
+                    mongo_client.save_violation(pid, image_path, timestamp)
+                    postgres_client.log_id(
+                        pid,
+                        datetime.datetime.fromtimestamp(times["enter"]),
+                        datetime.datetime.fromtimestamp(times["last_seen"]),
+                        filename
+                    )
 
-            if pid not in id_times:
-                id_times[pid] = {"enter": timestamp, "last_seen": timestamp}
-            else:
-                id_times[pid]["last_seen"] = timestamp
-
-        # Check for violations
-        for pid, times in id_times.items():
-            duration = times["last_seen"] - times["enter"]
-            if duration > tracker.threshold:
-                image_path = tracker.save_violation_image(frame, pid)
-                mongo_client.save_violation(pid, image_path, timestamp)
-                postgres_client.log_id(pid, times["enter"], times["last_seen"], filename)
-
-        frame = draw_boxes(frame, detections)
-        frame_display.image(frame, channels="BGR")
+            # Draw annotations and update display
+            annotated_frame = draw_boxes(frame, detections, len(ids_in_scene))
+            writer.write(annotated_frame)
+            frame_display.image(annotated_frame, channels="BGR")
+            
+            # Update status
+            status_text.text(f"Processing frame {frame_count} - {len(ids_in_scene)} people in scene")
+            
+    except Exception as e:
+        st.error(f"Error processing video: {str(e)}")
+    finally:
+        # Clean up
+        writer.release()
+        cap.release()
+        
+    st.success("Video processing complete! Output saved to: " + output_path)
 
 # # --- tracking.py ---
 
