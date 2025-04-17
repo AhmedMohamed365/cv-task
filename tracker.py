@@ -9,7 +9,7 @@ class PeopleTracker:
     def __init__(self, model_path='yolo12m.pt', tracker_config='utils/custom-botsort.yaml'):
         self.model = YOLO(model_path)
         self.tracker_config = tracker_config
-        self.threshold = 120  # 2 minutes in seconds
+        self.threshold = 20  # 20 seconds
         self.track_colors = {}
         self.output_dir = 'outputs'
         os.makedirs(self.output_dir, exist_ok=True)
@@ -69,7 +69,8 @@ class PeopleTracker:
 
     def save_violation_image(self, video_name, frame, pid):
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = f"violations/{video_name}_{pid}_{timestamp}.jpg"
+        os.makedirs(f"violations/{video_name}", exist_ok=True)
+        path = f"violations/{video_name}/{pid}_{timestamp}.jpg"
         cv2.imwrite(path, frame)
         return path
 

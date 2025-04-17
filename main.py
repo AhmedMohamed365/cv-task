@@ -19,6 +19,11 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 st.set_page_config(page_title="People Tracking App", layout="wide")
 st.title("🚀 Smart People Tracking and Violation Detection")
 
+# Create sidebar
+sidebar = st.sidebar
+sidebar.title("Tracked People")
+sidebar.markdown("**Current IDs and Duration:**")
+
 # Upload video
 uploaded_file = st.file_uploader("Upload a video", type=["mp4", "avi"])
 
@@ -61,21 +66,32 @@ if uploaded_file:
                 else:
                     id_times[pid]["last_seen"] = timestamp
 
-            # Check for violations (2 minutes threshold)
+            # Check for violations and update sidebar
+            violation_ids = set()
+            sidebar_text = ""
+            
             for pid, times in id_times.items():
                 duration = times["last_seen"] - times["enter"]
+                status = "🔴 Violation" if duration > tracker.threshold else "🟢 Normal"
+                sidebar_text += f"ID {pid}: {duration:.1f}s - {status}\n"
+                
                 if duration > tracker.threshold:  # 120 seconds
+                    violation_ids.add(pid)
                     image_path = tracker.save_violation_image(filename, frame, pid)
-                    mongo_client.save_violation(pid, image_path, timestamp)
+                    document_id = mongo_client.save_violation(filename, detections)
                     postgres_client.log_id(
                         pid,
                         datetime.datetime.fromtimestamp(times["enter"]),
                         datetime.datetime.fromtimestamp(times["last_seen"]),
-                        filename
+                        filename,
+                        document_id
                     )
 
+            # Update sidebar
+            sidebar.text_area("Current Tracking", value=sidebar_text, height=300, disabled=True, key=f"tracking_status_{frame_count}")
+
             # Draw annotations and update display
-            annotated_frame = draw_boxes(frame, detections, len(ids_in_scene))
+            annotated_frame = draw_boxes(frame, detections, len(ids_in_scene), violation_ids)
             writer.write(annotated_frame)
             frame_display.image(annotated_frame, channels="BGR")
             
@@ -90,96 +106,3 @@ if uploaded_file:
         cap.release()
         
     st.success("Video processing complete! Output saved to: " + output_path)
-
-# # --- tracking.py ---
-
-# class PeopleTracker:
-#     def __init__(self):
-#         self.threshold = 30  # seconds
-#         self.tracker = self.init_tracker()
-
-#     def init_tracker(self):
-#         # Initialize a simple tracker (e.g. SORT, DeepSort, etc.)
-#         import cv2
-#         return cv2.TrackerKCF_create()
-
-#     def track(self, frame):
-#         # Dummy tracking logic (replace with real one)
-#         return [{"id": 1, "bbox": [100, 100, 50, 100]}]
-
-#     def save_violation_image(self, frame, pid):
-#         path = f"violations/{pid}_{uuid.uuid4()}.jpg"
-#         os.makedirs("violations", exist_ok=True)
-#         cv2.imwrite(path, frame)
-#         return path
-
-# # --- mongo_client.py ---
-
-# from pymongo import MongoClient
-
-# class MongoClientWrapper:
-#     def __init__(self):
-#         self.client = MongoClient("mongodb://localhost:27017")
-#         self.db = self.client["tracking"]
-
-#     def save_violation(self, pid, image_path, timestamp):
-#         with open(image_path, "rb") as f:
-#             image_bytes = f.read()
-#         self.db.violations.insert_one({
-#             "pid": pid,
-#             "timestamp": timestamp,
-#             "image": image_bytes
-#         })
-
-# # --- postgres_client.py ---
-
-# import psycopg2
-
-# class PostgresClient:
-#     def __init__(self):
-#         self.conn = psycopg2.connect(
-#             dbname="tracking_db",
-#             user="postgres",
-#             password="postgres",
-#             host="localhost",
-#             port="5432"
-#         )
-#         self.cursor = self.conn.cursor()
-#         self.create_table()
-
-#     def create_table(self):
-#         self.cursor.execute('''CREATE TABLE IF NOT EXISTS tracking (
-#             id SERIAL PRIMARY KEY,
-#             person_id INT,
-#             enter_time FLOAT,
-#             exit_time FLOAT,
-#             video_name TEXT
-#         );''')
-#         self.conn.commit()
-
-#     def log_id(self, pid, enter_time, exit_time, video_name):
-#         self.cursor.execute(
-#             "INSERT INTO tracking (person_id, enter_time, exit_time, video_name) VALUES (%s, %s, %s, %s)",
-#             (pid, enter_time, exit_time, video_name)
-#         )
-#         self.conn.commit()
-
-# # --- video_utils.py ---
-
-# import cv2
-
-# def get_video_frames(video_path):
-#     cap = cv2.VideoCapture(video_path)
-#     while cap.isOpened():
-#         ret, frame = cap.read()
-#         if not ret:
-#             break
-#         yield frame
-#     cap.release()
-
-# def draw_boxes(frame, detections):
-#     for det in detections:
-#         x, y, w, h = det["bbox"]
-#         cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-#         cv2.putText(frame, f"ID: {det['id']}", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
-#     return frame

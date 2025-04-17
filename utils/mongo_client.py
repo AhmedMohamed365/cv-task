@@ -4,14 +4,18 @@ from pymongo import MongoClient
 
 class MongoClientWrapper:
     def __init__(self):
-        self.client = MongoClient("mongodb://localhost:27017")
+        self.client = MongoClient("mongodb://localhost:27017/")
         self.db = self.client["tracking"]
 
-    def save_violation(self, pid, image_path, timestamp):
-        with open(image_path, "rb") as f:
-            image_bytes = f.read()
-        self.db.violations.insert_one({
-            "pid": pid,
-            "timestamp": timestamp,
-            "image": image_bytes
-        })
+    def save_violation(self, frame_id, detections):
+        try:
+            result = self.db.violations.insert_one({
+                "frame_id": frame_id,
+                "detections": detections,
+            })
+            return result.inserted_id
+        except Exception as e:
+            print(f"Error saving violation to MongoDB: {str(e)}")
+            raise
+
+        

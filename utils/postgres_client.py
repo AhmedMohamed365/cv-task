@@ -20,13 +20,14 @@ class PostgresClient:
             person_id INT,
             enter_time TIMESTAMP,
             exit_time TIMESTAMP,
-            video_name TEXT
+            video_name TEXT,
+            mongo_document_id TEXT
         );''')
         self.conn.commit()
 
-    def log_id(self, pid, enter_time, exit_time, video_name):
+    def log_id(self, pid, enter_time, exit_time, video_name,mongo_document_id):
         self.cursor.execute(
-            "INSERT INTO tracking (person_id, enter_time, exit_time, video_name) VALUES (%s, %s, %s, %s)",
-            (pid, enter_time, exit_time, video_name)
+            "INSERT INTO tracking (person_id, enter_time, exit_time, video_name,mongo_document_id) VALUES (%s, %s, %s, %s,%s)",
+            (pid, enter_time, exit_time, video_name,mongo_document_id)
         )
         self.conn.commit()
